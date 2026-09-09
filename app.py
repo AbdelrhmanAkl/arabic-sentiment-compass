@@ -1,4 +1,3 @@
-
 import re
 import csv
 import io
@@ -6,7 +5,6 @@ from collections import Counter
 
 import torch
 import streamlit as st
-
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -14,7 +12,7 @@ from transformers import (
 
 
 # =========================================================
-# CONFIGURATION — KEEP MODEL PIPELINE UNCHANGED
+# CONFIGURATION — MODEL PIPELINE UNCHANGED
 # =========================================================
 
 MODEL_ID = "AbdelrahmanAkl/arabic-sentiment-compass-arabert"
@@ -32,12 +30,16 @@ ARABIC_LABELS = {
     "Positive": "إيجابي",
 }
 
-LABELS_ORDER = ["Negative", "Neutral", "Positive"]
+LABELS_ORDER = [
+    "Negative",
+    "Neutral",
+    "Positive",
+]
 
 SENTIMENT_ICONS = {
-    "Negative": "🔴",
-    "Neutral": "⚪",
-    "Positive": "🟢",
+    "Negative": "−",
+    "Neutral": "•",
+    "Positive": "+",
 }
 
 
@@ -57,11 +59,11 @@ st.set_page_config(
 # ORIGINAL PREPROCESSING — DO NOT CHANGE
 # =========================================================
 
-AR_DIACRITICS = re.compile(
+ARABIC_DIACRITICS = re.compile(
     r"[\u0617-\u061A\u064B-\u0652\u0670\u06D6-\u06ED]"
 )
 
-URL_RE = re.compile(r"https?://\S+|www\.\S+")
+URL_RE = re.compile(r"https?://*\S*+|www\\.*\S*+")
 MENTION_RE = re.compile(r"@[A-Za-z0-9_]+")
 
 
@@ -69,7 +71,7 @@ def preprocess_arabic_tweet(text):
     text = str(text)
     text = URL_RE.sub(" رابط ", text)
     text = MENTION_RE.sub(" مستخدم ", text)
-    text = AR_DIACRITICS.sub("", text)
+    text = ARABIC_DIACRITICS.sub("", text)
     text = re.sub(r"ـ+", "", text)
     text = re.sub("[إأآٱ]", "ا", text)
     text = text.replace("ى", "ي")
@@ -103,6 +105,7 @@ def load_model():
 # =========================================================
 
 def predict_sentiment(text, tokenizer, model):
+
     processed_text = preprocess_arabic_tweet(text)
 
     encoded = tokenizer(
@@ -113,14 +116,23 @@ def predict_sentiment(text, tokenizer, model):
     )
 
     with torch.inference_mode():
+
         logits = model(**encoded).logits
-        probabilities = torch.softmax(logits, dim=-1)
+
+        probabilities = torch.softmax(
+            logits,
+            dim=-1,
+        )
 
     scores = probabilities[0]
 
     predicted_id = int(scores.argmax())
+
     predicted_label = ID2LABEL[predicted_id]
-    confidence = float(scores[predicted_id])
+
+    confidence = float(
+        scores[predicted_id]
+    )
 
     probabilities_dict = {
         ID2LABEL[i]: float(scores[i])
@@ -136,672 +148,1851 @@ def predict_sentiment(text, tokenizer, model):
 
 
 # =========================================================
-# CSS — THREE-TAB PROFESSIONAL UI
+# SESSION STATE
 # =========================================================
 
-st.html("""
+if "single_result" not in st.session_state:
+    st.session_state.single_result = None
+
+if "csv_results" not in st.session_state:
+    st.session_state.csv_results = None
+
+if "csv_columns" not in st.session_state:
+    st.session_state.csv_columns = []
+
+if "single_text" not in st.session_state:
+    st.session_state.single_text = ""
+
+
+# =========================================================
+# PREMIUM UI
+# =========================================================
+
+st.markdown(
+    """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
 
-:root {
-    --bg: #f7f5f0;
-    --navy: #0b1526;
-    --navy-2: #111d31;
-    --gold: #c69a2b;
-    --gold-soft: #e3c875;
-    --border: #ded8ca;
-    --text: #172033;
-    --muted: #687080;
-    --white: #ffffff;
-}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 
-html, body, [class*="css"] {
-    font-family: "Cairo", sans-serif !important;
-}
-
-.stApp {
-    background: var(--bg);
-    color: var(--text);
-}
-
-header, footer, #MainMenu {
-    visibility: hidden;
-}
-
-.block-container {
-    max-width: 1120px;
-    padding-top: 1.25rem;
-    padding-bottom: 2.5rem;
-}
-
-/* HERO */
-.compass-hero {
-    direction: rtl;
-    position: relative;
-    overflow: hidden;
-    min-height: 210px;
-    padding: 1.65rem 2.25rem;
-    border-radius: 18px;
-    background:
-        radial-gradient(circle at 75% 30%, rgba(198,154,43,.18), transparent 27%),
-        linear-gradient(115deg, #091325 0%, #0d182a 55%, #26303a 100%);
-    color: white;
-    box-shadow: 0 12px 30px rgba(11,21,38,.12);
-}
-
-.compass-hero::after {
-    content: "🧭";
-    position: absolute;
-    left: 28px;
-    bottom: -25px;
-    font-size: 8rem;
-    opacity: .07;
-}
-
-.hero-badge {
-    display: inline-block;
-    border: 1px solid rgba(198,154,43,.75);
-    color: #e8c85d;
-    border-radius: 999px;
-    padding: .22rem .75rem;
-    font-size: .72rem;
-    margin-bottom: .75rem;
-}
-
-.compass-hero h1 {
-    margin: 0;
-    font-size: clamp(2rem, 4vw, 3.1rem);
-    line-height: 1.15;
-    font-weight: 800;
-}
-
-.compass-hero p {
-    max-width: 760px;
-    margin: .7rem 0 0;
-    color: #d6dce5;
-    line-height: 1.9;
-    font-size: .86rem;
-}
-
-/* TABS */
-button[data-baseweb="tab"] {
-    font-family: "Cairo", sans-serif !important;
-    color: #495261 !important;
-    font-weight: 600 !important;
-    font-size: .82rem !important;
-}
-
-button[data-baseweb="tab"][aria-selected="true"] {
-    color: #111b2c !important;
-}
-
-div[data-baseweb="tab-highlight"] {
-    background: var(--gold) !important;
-}
-
-/* PANELS */
-.panel-title {
-    direction: rtl;
-    color: var(--navy);
-    font-weight: 800;
-    font-size: 1.1rem;
-    margin: .55rem 0 .25rem;
-}
-
-.panel-subtitle {
-    margin-top: 0 !important;
-    direction: rtl;
-    color: var(--muted);
-    font-size: .78rem;
-    margin-bottom: .8rem;
-}
-
-.surface {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1rem;
-}
-
-.gold-title {
-    color: var(--gold);
-    font-weight: 800;
-}
-
-textarea {
-    direction: rtl !important;
-    text-align: right !important;
-    font-family: "Cairo", sans-serif !important;
-}
-
-/* Remove any accidental empty single-line Streamlit text input.
-   The actual analysis field is the textarea below it. */
-div[data-testid="stTextInput"] {
-    display: none !important;
-}
-
-
-
-/* Single-text analysis workspace */
-div[data-testid="stTextArea"] {
-    background: #ffffff !important;
-    border: 1px solid #ddd7ca !important;
-    border-radius: 14px !important;
-    padding: .85rem !important;
-    box-shadow: 0 8px 24px rgba(11, 21, 38, .045) !important;
-}
-
-div[data-testid="stTextArea"] textarea {
-    background: #fffdf9 !important;
-    border: 1px solid #d9d1c0 !important;
-    border-radius: 10px !important;
-    min-height: 150px !important;
-    box-shadow: none !important;
-}
-
-div[data-testid="stTextArea"] textarea {
-    background: #fffdf9 !important;
-    border: 1px solid #d9d1c0 !important;
-    border-radius: 11px !important;
-    min-height: 150px !important;
-}
-
-div[data-testid="stTextArea"] textarea:focus {
-    border-color: var(--gold) !important;
-    box-shadow: 0 0 0 2px rgba(198,154,43,.10) !important;
-}
-
-div.stButton > button {
-    font-family: "Cairo", sans-serif !important;
-    border-radius: 9px !important;
-    font-weight: 700 !important;
-    min-height: 2.45rem !important;
-}
-
-.primary-btn button {
-    background: var(--navy) !important;
-    color: white !important;
-    border: 1px solid var(--navy) !important;
-}
-
-.secondary-btn button {
-    background: white !important;
-    color: var(--navy) !important;
-    border: 1px solid #d6d0c2 !important;
-}
-
-/* RESULT */
-.result-card {
-    direction: rtl;
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1.25rem;
-    text-align: center;
-}
-
-.result-question {
-    width: 42px;
-    height: 42px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto .65rem;
-    border: 1px solid #ded7c8;
-    border-radius: 11px;
-    color: var(--gold);
-    font-size: 1.25rem;
-}
-
-.result-label {
-    color: var(--navy);
-    font-size: 1.35rem;
-    font-weight: 800;
-}
-
-.result-en {
-    color: var(--muted);
-    font-size: .78rem;
-}
-
-.confidence {
-    display: inline-block;
-    margin-top: .65rem;
-    padding: .38rem .8rem;
-    border-radius: 8px;
-    background: #fbf7e9;
-    border: 1px solid #eadfb9;
-    color: #765a08;
-    font-size: .82rem;
-    font-weight: 700;
-}
-
-.prob-card {
-    direction: rtl;
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: .9rem;
-    text-align: center;
-}
-
-.prob-icon {
-    font-size: 1.15rem;
-}
-
-.prob-title {
-    color: var(--navy);
-    font-weight: 800;
-    font-size: .9rem;
-}
-
-.prob-en {
-    color: var(--muted);
-    font-size: .7rem;
-}
-
-.prob-value {
-    color: var(--gold);
-    font-size: 1.15rem;
-    font-weight: 800;
-    margin-top: .3rem;
-}
-
-/* CSV */
-.csv-note {
-    direction: rtl;
-    background: #fffdf8;
-    border: 1px solid #e6dcc0;
-    border-right: 4px solid var(--gold);
-    border-radius: 9px;
-    padding: .7rem .9rem;
-    color: #5d5748;
-    font-size: .76rem;
-    line-height: 1.8;
-}
-
-/* ABOUT */
-.about-card {
-    direction: rtl;
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 13px;
-    padding: 1rem;
-    min-height: 105px;
-}
-
-.about-card h4 {
-    color: var(--navy);
-    margin: 0 0 .35rem;
-    font-size: .9rem;
-}
-
-.about-card p {
-    color: #646b77;
-    margin: 0;
-    line-height: 1.8;
-    font-size: .72rem;
-}
-
-.footer {
-    direction: rtl;
-    text-align: center;
-    color: #7b7d82;
-    font-size: .72rem;
-    padding-top: 1.4rem;
-    margin-top: 2rem;
-    border-top: 1px solid #e6e0d5;
-}
-
-@media (max-width: 768px) {
-    .compass-hero {
-        padding: 1.25rem;
-        min-height: 190px;
-    }
-
-    .compass-hero h1 {
-        font-size: 2rem;
-    }
-}
 
 /* =========================================================
-   PREMIUM V2 VISUAL SYSTEM
+   GLOBAL
    ========================================================= */
 
 :root {
-    --bg: #f4f2ed;
-    --navy: #091425;
-    --navy-2: #111d2e;
-    --gold: #c49a32;
-    --gold-light: #ead58d;
-    --ink: #172033;
-    --muted: #697180;
-    --border: #ddd7ca;
-    --card: #ffffff;
-    --shadow: 0 14px 38px rgba(11, 21, 38, .08);
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #f8f9fc;
+
+    --navy: #0b1730;
+    --navy-soft: #1b2942;
+
+    --purple: #6557e8;
+    --purple-light: #8378f5;
+
+    --cyan: #22b8c7;
+
+    --green: #169b6b;
+    --red: #d95757;
+    --gold: #b78a28;
+
+    --text: #182235;
+    --muted: #718096;
+
+    --border: #e5e9f0;
+
+    --shadow-sm:
+        0 6px 20px rgba(15, 23, 42, 0.045);
+
+    --shadow:
+        0 16px 40px rgba(15, 23, 42, 0.065);
 }
+
+
+html,
+body,
+[class*="css"] {
+
+    font-family:
+        "IBM Plex Sans Arabic",
+        "Cairo",
+        sans-serif !important;
+}
+
 
 .stApp {
+
     background:
-        radial-gradient(circle at 8% 6%, rgba(196,154,50,.045), transparent 22%),
-        linear-gradient(180deg, #f7f5f0 0%, #f1efe9 100%);
+        radial-gradient(
+            circle at 0% 0%,
+            rgba(101, 87, 232, 0.055),
+            transparent 26%
+        ),
+
+        radial-gradient(
+            circle at 100% 10%,
+            rgba(34, 184, 199, 0.045),
+            transparent 25%
+        ),
+
+        linear-gradient(
+            180deg,
+            #f8fafc 0%,
+            #f3f5f8 100%
+        );
+
+    color: var(--text);
 }
+
+
+header,
+footer,
+#MainMenu {
+
+    visibility: hidden;
+}
+
 
 .block-container {
-    max-width: 1180px;
+
+    max-width: 1280px;
+
     padding-top: 1rem;
-    padding-bottom: 2rem;
+    padding-bottom: 3rem;
+
 }
 
-.compass-hero {
-    min-height: 235px;
-    padding: 2rem 2.5rem;
-    border-radius: 22px;
+
+/* =========================================================
+   TOP BAR
+   ========================================================= */
+
+.topbar {
+
+    direction: rtl;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    margin-bottom: 1rem;
+
+}
+
+
+.brand {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 0.7rem;
+
+}
+
+
+.brand-icon {
+
+    width: 42px;
+    height: 42px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 13px;
+
+    color: white;
+
+    font-size: 1.2rem;
+
     background:
-        radial-gradient(circle at 16% 62%, rgba(196,154,50,.15), transparent 20%),
-        radial-gradient(circle at 86% 15%, rgba(255,255,255,.08), transparent 28%),
-        linear-gradient(120deg, #071224 0%, #0d192a 52%, #28313a 100%);
+        linear-gradient(
+            135deg,
+            var(--purple),
+            var(--purple-light)
+        );
+
     box-shadow:
-        0 20px 45px rgba(8, 18, 35, .16),
-        inset 0 1px 0 rgba(255,255,255,.06);
+        0 8px 20px
+        rgba(101, 87, 232, 0.22);
+
 }
 
-.compass-hero::before {
-    content: "";
-    position: absolute;
-    inset: 0;
+
+.brand-title {
+
+    color: var(--navy);
+
+    font-size: 0.94rem;
+
+    font-weight: 800;
+
+    line-height: 1.2;
+
+}
+
+
+.brand-subtitle {
+
+    color: var(--muted);
+
+    font-size: 0.59rem;
+
+    margin-top: 0.12rem;
+
+}
+
+
+.status {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 0.45rem;
+
+    direction: ltr;
+
+    padding:
+        0.4rem 0.72rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 999px;
+
+    background: rgba(255,255,255,0.85);
+
+    color: #596579;
+
+    font-size: 0.62rem;
+
+    font-weight: 700;
+
+}
+
+
+.status-dot {
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+
+    background: #19aa78;
+
+    box-shadow:
+        0 0 0 4px
+        rgba(25,170,120,0.10);
+
+}
+
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
+.hero {
+
+    position: relative;
+
+    overflow: hidden;
+
+    direction: rtl;
+
+    padding:
+        2.6rem 3rem;
+
+    border-radius: 26px;
+
     background:
-        linear-gradient(90deg, transparent 0 72%, rgba(196,154,50,.06) 72% 72.2%, transparent 72.2%),
-        linear-gradient(0deg, transparent 0 78%, rgba(255,255,255,.035) 78% 78.2%, transparent 78.2%);
-    pointer-events: none;
+
+        radial-gradient(
+            circle at 85% 15%,
+            rgba(34,184,199,0.11),
+            transparent 26%
+        ),
+
+        radial-gradient(
+            circle at 10% 85%,
+            rgba(101,87,232,0.25),
+            transparent 28%
+        ),
+
+        linear-gradient(
+            120deg,
+            #091426 0%,
+            #0d1d34 55%,
+            #172943 100%
+        );
+
+    box-shadow:
+        0 22px 55px
+        rgba(8,20,38,0.14);
+
 }
 
-.compass-hero::after {
-    content: "🧭";
-    left: 38px;
-    bottom: -22px;
-    font-size: 8.5rem;
-    filter: grayscale(1);
-    opacity: .11;
+
+.hero::after {
+
+    content: "";
+
+    position: absolute;
+
+    width: 300px;
+    height: 300px;
+
+    left: -150px;
+    bottom: -190px;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.055);
+
+    border-radius: 50%;
+
+    box-shadow:
+        0 0 0 35px rgba(255,255,255,0.018),
+        0 0 0 70px rgba(255,255,255,0.012);
+
 }
+
+
+.hero-content {
+
+    position: relative;
+
+    z-index: 2;
+
+    max-width: 850px;
+
+}
+
 
 .hero-badge {
-    position: relative;
-    z-index: 2;
-    border-color: rgba(232,200,93,.72);
-    background: rgba(196,154,50,.08);
-    padding: .28rem .82rem;
-    font-size: .7rem;
-    letter-spacing: .02em;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 0.45rem;
+
+    padding:
+        0.35rem 0.7rem;
+
+    margin-bottom: 1rem;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.12);
+
+    border-radius: 999px;
+
+    background:
+        rgba(255,255,255,0.045);
+
+    color: #cbd5e3;
+
+    font-size: 0.61rem;
+
+    font-weight: 600;
+
 }
 
-.compass-hero h1 {
-    position: relative;
-    z-index: 2;
-    font-size: clamp(2.2rem, 5vw, 3.65rem);
-    letter-spacing: -.035em;
-    text-shadow: 0 4px 20px rgba(0,0,0,.16);
+
+.hero-badge strong {
+
+    color: #9a91ff;
+
 }
 
-.compass-hero p {
-    position: relative;
-    z-index: 2;
-    max-width: 850px;
-    font-size: .9rem;
+
+.hero h1 {
+
+    margin: 0;
+
+    color: white;
+
+    font-size:
+        clamp(2.2rem, 5vw, 3.7rem);
+
+    line-height: 1.25;
+
+    font-weight: 800;
+
+    letter-spacing: -0.035em;
+
+}
+
+
+.hero-description {
+
+    max-width: 760px;
+
+    margin-top: 0.9rem;
+
+    color: #b7c3d4;
+
+    font-size: 0.82rem;
+
     line-height: 2;
+
 }
+
 
 .hero-meta {
-    position: relative;
-    z-index: 2;
+
     display: flex;
+
     flex-wrap: wrap;
-    gap: .45rem;
-    margin-top: 1rem;
-    direction: rtl;
+
+    gap: 0.5rem;
+
+    margin-top: 1.4rem;
+
 }
 
-.hero-chip {
-    display: inline-flex;
+
+.meta-item {
+
+    display: flex;
+
     align-items: center;
-    gap: .35rem;
-    padding: .28rem .65rem;
-    border: 1px solid rgba(255,255,255,.13);
-    border-radius: 999px;
-    background: rgba(255,255,255,.055);
-    color: #dce3ed;
-    font-size: .67rem;
+
+    gap: 0.4rem;
+
+    direction: ltr;
+
+    padding:
+        0.43rem 0.7rem;
+
+    border:
+        1px solid
+        rgba(255,255,255,0.095);
+
+    border-radius: 9px;
+
+    background:
+        rgba(255,255,255,0.035);
+
+    color: #c7d1df;
+
+    font-size: 0.6rem;
+
 }
 
-.hero-chip strong {
-    color: #e5c55d;
+
+.meta-item strong {
+
+    color: white;
+
 }
+
+
+/* =========================================================
+   TABS
+   ========================================================= */
 
 div[data-baseweb="tab-list"] {
-    gap: .3rem !important;
-    border-bottom: 1px solid #ddd7ca !important;
-    padding: .35rem .15rem 0 !important;
+
+    display: flex;
+
+    gap: 0.3rem !important;
+
+    margin-top: 1.4rem;
+
+    padding: 0.3rem !important;
+
+    border:
+        1px solid var(--border) !important;
+
+    border-radius: 13px !important;
+
+    background:
+        rgba(255,255,255,0.78) !important;
+
 }
+
 
 button[data-baseweb="tab"] {
-    min-height: 2.65rem !important;
-    padding: .45rem 1rem !important;
-    border-radius: 9px 9px 0 0 !important;
-    transition: .18s ease !important;
+
+    min-height: 2.6rem !important;
+
+    padding:
+        0.45rem 1.1rem !important;
+
+    border-radius: 9px !important;
+
+    color: #667085 !important;
+
+    font-family:
+        "IBM Plex Sans Arabic",
+        "Cairo",
+        sans-serif !important;
+
+    font-size: 0.72rem !important;
+
+    font-weight: 700 !important;
+
 }
+
 
 button[data-baseweb="tab"]:hover {
-    background: rgba(196,154,50,.06) !important;
+
+    background:
+        rgba(101,87,232,0.055) !important;
+
 }
+
 
 button[data-baseweb="tab"][aria-selected="true"] {
-    background: #fff !important;
-    color: var(--navy) !important;
-    box-shadow: 0 -1px 0 #ddd7ca, 0 1px 0 #fff !important;
+
+    color: white !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            var(--purple),
+            var(--purple-light)
+        ) !important;
+
+    box-shadow:
+        0 6px 15px
+        rgba(101,87,232,0.18) !important;
+
 }
+
 
 div[data-baseweb="tab-highlight"] {
-    height: 3px !important;
-    border-radius: 3px 3px 0 0 !important;
-    background: linear-gradient(90deg, #b88620, #e4c968) !important;
+
+    display: none !important;
+
 }
 
-.panel-title {
-    font-size: 1.18rem;
-    letter-spacing: -.01em;
+
+/* =========================================================
+   SECTION
+   ========================================================= */
+
+.section {
+
+    direction: rtl;
+
+    margin:
+        1.8rem 0 1rem;
+
 }
 
-.panel-subtitle {
-    margin-bottom: 1rem;
+
+.section-eyebrow {
+
+    color: var(--purple);
+
+    font-size: 0.59rem;
+
+    font-weight: 800;
+
+    letter-spacing: 0.07em;
+
 }
 
-.surface {
-    border: 1px solid rgba(221,215,202,.9);
-    box-shadow: var(--shadow);
+
+.section-title {
+
+    margin-top: 0.15rem;
+
+    color: var(--navy);
+
+    font-size: 1.22rem;
+
+    font-weight: 800;
+
+}
+
+
+.section-description {
+
+    margin-top: 0.22rem;
+
+    color: var(--muted);
+
+    font-size: 0.68rem;
+
+    line-height: 1.8;
+
+}
+
+
+/* =========================================================
+   CARDS
+   ========================================================= */
+
+.card {
+
+    direction: rtl;
+
     padding: 1.2rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 18px;
+
+    background: var(--surface);
+
+    box-shadow: var(--shadow-sm);
+
 }
+
+
+.card-head {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    margin-bottom: 0.8rem;
+
+}
+
+
+.card-title {
+
+    color: var(--navy);
+
+    font-size: 0.85rem;
+
+    font-weight: 800;
+
+}
+
+
+.card-caption {
+
+    color: #8b95a5;
+
+    font-size: 0.58rem;
+
+}
+
+
+/* =========================================================
+   TEXT INPUT
+   ========================================================= */
+
+div[data-testid="stTextArea"] {
+
+    margin-top: 0.2rem;
+
+}
+
 
 div[data-testid="stTextArea"] textarea {
-    min-height: 165px !important;
-    background: #fffefa !important;
-    border-color: #d6cdbb !important;
-    box-shadow: inset 0 1px 2px rgba(20,30,45,.03);
+
+    direction: rtl !important;
+
+    text-align: right !important;
+
+    font-family:
+        "IBM Plex Sans Arabic",
+        "Cairo",
+        sans-serif !important;
+
+    min-height: 175px !important;
+
+    padding: 0.95rem !important;
+
+    border:
+        1px solid #dfe4ec !important;
+
+    border-radius: 13px !important;
+
+    background: #fbfcfe !important;
+
+    color: #172033 !important;
+
+    font-size: 0.8rem !important;
+
+    line-height: 2 !important;
+
 }
+
+
+div[data-testid="stTextArea"] textarea:focus {
+
+    border-color:
+        var(--purple) !important;
+
+    box-shadow:
+        0 0 0 3px
+        rgba(101,87,232,0.09) !important;
+
+}
+
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
 
 div.stButton > button {
-    min-height: 2.65rem !important;
-    transition: transform .16s ease, box-shadow .16s ease !important;
+
+    width: 100%;
+
+    min-height: 2.75rem;
+
+    border-radius: 10px !important;
+
+    font-family:
+        "IBM Plex Sans Arabic",
+        "Cairo",
+        sans-serif !important;
+
+    font-size: 0.7rem !important;
+
+    font-weight: 700 !important;
+
+    transition:
+        transform 0.18s ease,
+        box-shadow 0.18s ease !important;
+
 }
+
 
 div.stButton > button:hover {
-    transform: translateY(-1px);
+
+    transform:
+        translateY(-1px);
+
 }
 
-.primary-btn button {
-    background: linear-gradient(135deg, #0a1628, #17263a) !important;
-    box-shadow: 0 7px 16px rgba(9,20,37,.14);
+
+.primary button {
+
+    color: white !important;
+
+    border:
+        1px solid var(--purple) !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            var(--purple),
+            var(--purple-light)
+        ) !important;
+
+    box-shadow:
+        0 8px 18px
+        rgba(101,87,232,0.16) !important;
+
 }
 
-.secondary-btn button {
-    background: #fff !important;
+
+.secondary button {
+
+    color: #4d596c !important;
+
+    border:
+        1px solid #dfe4ec !important;
+
+    background:
+        white !important;
+
 }
 
-.result-card {
-    min-height: 190px;
-    border-radius: 18px;
-    border-color: #ddd5c4;
-    box-shadow: var(--shadow);
+
+/* =========================================================
+   EMPTY STATE
+   ========================================================= */
+
+.empty {
+
+    min-height: 275px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    justify-content: center;
+
+    text-align: center;
+
+    direction: rtl;
+
     padding: 1.5rem;
+
+    border:
+        1px dashed #d7dee8;
+
+    border-radius: 18px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff,
+            #fafbfd
+        );
+
+}
+
+
+.empty-icon {
+
+    width: 54px;
+    height: 54px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    margin-bottom: 0.8rem;
+
+    border-radius: 15px;
+
+    color: var(--purple);
+
+    background:
+        rgba(101,87,232,0.065);
+
+    border:
+        1px solid
+        rgba(101,87,232,0.11);
+
+    font-size: 1.25rem;
+
+}
+
+
+.empty-title {
+
+    color: var(--navy);
+
+    font-size: 0.92rem;
+
+    font-weight: 800;
+
+}
+
+
+.empty-text {
+
+    max-width: 280px;
+
+    margin-top: 0.35rem;
+
+    color: var(--muted);
+
+    font-size: 0.65rem;
+
+    line-height: 1.9;
+
+}
+
+
+/* =========================================================
+   RESULT
+   ========================================================= */
+
+.result {
+
     position: relative;
+
     overflow: hidden;
+
+    min-height: 275px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    justify-content: center;
+
+    text-align: center;
+
+    direction: rtl;
+
+    padding: 1.5rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 18px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff,
+            #fafbfe
+        );
+
+    box-shadow: var(--shadow-sm);
+
 }
 
-.result-card::before {
+
+.result::before {
+
     content: "";
+
     position: absolute;
-    inset: 0 0 auto 0;
-    height: 4px;
-    background: linear-gradient(90deg, #b98d28, #e6cf78, #b98d28);
+
+    top: 0;
+    left: 0;
+    right: 0;
+
+    height: 3px;
+
+    background:
+        linear-gradient(
+            90deg,
+            var(--purple),
+            var(--cyan)
+        );
+
 }
 
-.result-question {
-    width: 50px;
-    height: 50px;
-    border-radius: 14px;
-    background: #fbf8f0;
-    box-shadow: 0 5px 15px rgba(20,30,45,.06);
+
+.result-orb {
+
+    width: 70px;
+    height: 70px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    margin-bottom: 0.75rem;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(101,87,232,0.13),
+            rgba(101,87,232,0.025)
+        );
+
+    border:
+        1px solid
+        rgba(101,87,232,0.13);
+
 }
+
+
+.result-symbol {
+
+    font-size: 2rem;
+
+    font-weight: 700;
+
+    color: var(--purple);
+
+}
+
 
 .result-label {
-    font-size: 1.65rem;
-    margin-top: .15rem;
+
+    color: var(--navy);
+
+    font-size: 1.5rem;
+
+    font-weight: 800;
+
 }
+
+
+.result-sub {
+
+    margin-top: 0.12rem;
+
+    color: var(--muted);
+
+    font-size: 0.6rem;
+
+}
+
 
 .confidence {
-    padding: .48rem 1rem;
+
+    margin-top: 0.75rem;
+
+    padding:
+        0.4rem 0.75rem;
+
     border-radius: 999px;
-    font-size: .8rem;
-    background: linear-gradient(180deg, #fffaf0, #f8f0d8);
+
+    color: #584aa8;
+
+    background:
+        rgba(101,87,232,0.065);
+
+    border:
+        1px solid
+        rgba(101,87,232,0.10);
+
+    font-size: 0.66rem;
+
+    font-weight: 700;
+
 }
 
-.prob-card {
-    min-height: 155px;
-    padding: 1rem;
-    border-radius: 16px;
-    box-shadow: 0 9px 25px rgba(11,21,38,.055);
-    transition: transform .18s ease, box-shadow .18s ease;
+
+/* =========================================================
+   PROBABILITIES
+   ========================================================= */
+
+.prob-title {
+
+    direction: rtl;
+
+    margin:
+        1.25rem 0 0.65rem;
+
+    color: var(--navy);
+
+    font-size: 0.82rem;
+
+    font-weight: 800;
+
 }
 
-.prob-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 15px 30px rgba(11,21,38,.09);
+
+ .prob {
+
+        direction: rtl !important;
+        text-align: right !important;
+
+        position: relative;
+        overflow: hidden;
+
+        padding: 1.15rem 1.15rem 1rem;
+
+        min-height: 138px;
+
+        border: 1px solid #e4e8f0;
+        border-radius: 18px;
+
+        background:
+            linear-gradient(145deg, #ffffff 0%, #fbfcff 100%);
+
+        box-shadow:
+            0 8px 24px rgba(15, 23, 42, 0.045);
+
+        transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            border-color 0.18s ease;
+
+    }
+
+
+    .prob:hover {
+
+        transform: translateY(-2px);
+
+        border-color: #d9deea;
+
+        box-shadow:
+            0 14px 30px rgba(15, 23, 42, 0.08);
+
+    }
+
+
+    .prob::before {
+
+        content: "";
+
+        position: absolute;
+
+        top: 0;
+        right: 0;
+
+        width: 100%;
+        height: 3px;
+
+        background:
+            linear-gradient(
+                90deg,
+                rgba(101,87,232,0.20),
+                rgba(34,184,199,0.65)
+            );
+
+    }
+
+
+.prob-head {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
 }
+
+
+.prob-name {
+
+    color: var(--navy);
+
+    font-size: 0.76rem;
+
+    font-weight: 800;
+
+}
+
+
+.prob-en {
+
+    margin-top: 0.05rem;
+
+    color: #929aaa;
+
+    font-size: 0.54rem;
+
+}
+
+
+.prob-icon {
+
+    width: 31px;
+    height: 31px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 9px;
+
+    background: #f4f6fa;
+
+    color: #667085;
+
+    font-weight: 700;
+
+}
+
 
 .prob-value {
-    font-size: 1.35rem;
+
+    margin-top: 0.65rem;
+
+    color: var(--navy);
+
+    font-size: 1.18rem;
+
+    font-weight: 800;
+
 }
 
-div[data-testid="stProgress"] > div {
-    background: #e8e6df !important;
+
+.prob-track {
+
+    height: 5px;
+
+    overflow: hidden;
+
+    margin-top: 0.5rem;
+
+    border-radius: 999px;
+
+    background: #edf0f4;
+
 }
 
-div[data-testid="stProgress"] > div > div {
-    background: linear-gradient(90deg, #b88620, #e2c75d) !important;
+
+.prob-fill {
+
+    height: 100%;
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(
+            90deg,
+            var(--purple),
+            var(--cyan)
+        );
+
 }
 
-.csv-note {
-    box-shadow: 0 5px 16px rgba(11,21,38,.035);
+
+/* =========================================================
+   PROCESSED TEXT
+   ========================================================= */
+
+.processed {
+
+    direction: rtl;
+
+    margin-top: 0.9rem;
+
+    padding:
+        0.85rem 0.95rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 13px;
+
+    background: #fafbfc;
+
 }
+
+
+.processed-label {
+
+    color: var(--navy);
+
+    font-size: 0.63rem;
+
+    font-weight: 800;
+
+}
+
+
+.processed-value {
+
+    margin-top: 0.3rem;
+
+    color: #687386;
+
+    font-size: 0.64rem;
+
+    line-height: 1.9;
+
+}
+
+
+/* =========================================================
+   CSV
+   ========================================================= */
+
+.info {
+
+    direction: rtl;
+
+    margin-bottom: 1rem;
+
+    padding:
+        0.8rem 0.95rem;
+
+    border:
+        1px solid #e2e7ee;
+
+    border-right:
+        3px solid var(--purple);
+
+    border-radius: 12px;
+
+    background: white;
+
+    color: #687386;
+
+    font-size: 0.64rem;
+
+    line-height: 1.9;
+
+}
+
 
 div[data-testid="stFileUploader"] {
-    border-radius: 14px !important;
+
+    padding: 0.35rem;
+
+    border:
+        1px dashed #ccd5e1;
+
+    border-radius: 13px;
+
+    background: #fafbfc;
+
 }
+
+
+/* =========================================================
+   STAT CARDS
+   ========================================================= */
+
+.stat {
+
+    direction: rtl;
+
+    padding: 0.9rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 14px;
+
+    background: white;
+
+    box-shadow: var(--shadow-sm);
+
+}
+
+
+.stat-label {
+
+    color: var(--muted);
+
+    font-size: 0.58rem;
+
+}
+
+
+.stat-value {
+
+    margin-top: 0.2rem;
+
+    color: var(--navy);
+
+    font-size: 1.18rem;
+
+    font-weight: 800;
+
+}
+
+
+.stat-sub {
+
+    margin-top: 0.08rem;
+
+    color: #98a1af;
+
+    font-size: 0.52rem;
+
+}
+
+
+/* =========================================================
+   DATAFRAME
+   ========================================================= */
 
 div[data-testid="stDataFrame"] {
-    border: 1px solid #ddd7ca !important;
-    border-radius: 14px !important;
+
     overflow: hidden !important;
-    box-shadow: 0 9px 24px rgba(11,21,38,.05);
+
+    border:
+        1px solid var(--border) !important;
+
+    border-radius: 13px !important;
+
+    box-shadow: var(--shadow-sm);
+
 }
 
-div[data-testid="stDataFrame"] [role="gridcell"],
-div[data-testid="stDataFrame"] [role="columnheader"] {
-    font-family: "Cairo", sans-serif !important;
+
+div[data-testid="stDataFrame"] * {
+
+    font-family:
+        "IBM Plex Sans Arabic",
+        "Cairo",
+        sans-serif !important;
+
 }
 
-.about-card {
-    min-height: 125px;
-    border-radius: 16px;
-    box-shadow: 0 8px 24px rgba(11,21,38,.045);
-    transition: transform .16s ease;
+
+/* =========================================================
+   MODEL INTELLIGENCE
+   ========================================================= */
+
+.intel {
+
+    direction: rtl;
+
+    min-height: 130px;
+
+    padding: 1rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 15px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff,
+            #fafbfe
+        );
+
+    box-shadow: var(--shadow-sm);
+
 }
 
-.about-card:hover {
+
+.intel-label {
+
+    color: var(--muted);
+
+    font-size: 0.57rem;
+
+}
+
+
+.intel-value {
+
+    margin-top: 0.35rem;
+
+    color: var(--navy);
+
+    font-size: 0.92rem;
+
+    font-weight: 800;
+
+}
+
+
+.intel-accent {
+
+    color: var(--purple);
+
+}
+
+
+/* =========================================================
+   PIPELINE
+   ========================================================= */
+
+.pipeline {
+
+    position: relative;
+
+    direction: rtl;
+
+    min-height: 118px;
+
+    padding: 0.9rem;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 15px;
+
+    background: white;
+
+    box-shadow: var(--shadow-sm);
+
+}
+
+
+.pipeline-number {
+
+    color: var(--purple);
+
+    font-size: 0.56rem;
+
+    font-weight: 800;
+
+}
+
+
+.pipeline-title {
+
+    margin-top: 0.4rem;
+
+    color: var(--navy);
+
+    font-size: 0.72rem;
+
+    font-weight: 800;
+
+}
+
+
+.pipeline-sub {
+
+    margin-top: 0.25rem;
+
+    color: var(--muted);
+
+    font-size: 0.55rem;
+
+    line-height: 1.6;
+
+}
+
+
+/* =========================================================
+   ABOUT
+   ========================================================= */
+
+/* =========================================================
+   ABOUT — POLISHED RTL CARDS
+   ========================================================= */
+
+.about {
+
+    direction: rtl !important;
+    text-align: right !important;
+
+    min-height: 178px;
+    padding: 1.25rem;
+
+    border: 1px solid var(--border);
+    border-radius: 18px;
+
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+
+    box-shadow: var(--shadow-sm);
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    overflow: hidden;
+
+    transition:
+        transform 0.18s ease,
+        box-shadow 0.18s ease,
+        border-color 0.18s ease;
+
+}
+
+.about:hover {
+
     transform: translateY(-2px);
+    border-color: #d8dcef;
+
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+
 }
+
+.about-icon {
+
+    width: 40px;
+    height: 40px;
+
+    flex: 0 0 auto;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    margin-bottom: 0.85rem;
+    border-radius: 11px;
+
+    color: var(--purple);
+
+    background: linear-gradient(
+        135deg,
+        rgba(101,87,232,0.10),
+        rgba(34,184,199,0.07)
+    );
+
+    border: 1px solid rgba(101,87,232,0.10);
+
+    font-size: 0.95rem;
+    font-weight: 800;
+
+}
+
+.about-title {
+
+    width: 100%;
+
+    color: var(--navy);
+
+    font-size: 0.82rem;
+    line-height: 1.45;
+    font-weight: 800;
+
+    unicode-bidi: plaintext;
+
+}
+
+.about-text {
+
+    width: 100%;
+
+    margin-top: 0.5rem;
+
+    color: #687386;
+
+    font-size: 0.68rem;
+    line-height: 2.05;
+    font-weight: 500;
+
+    direction: rtl !important;
+    text-align: right !important;
+
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: normal;
+
+    unicode-bidi: plaintext;
+
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
 
 .footer {
-    margin-top: 2.5rem;
-    padding-top: 1.5rem;
+
+    direction: rtl;
+
+    margin-top: 2.8rem;
+
+    padding:
+        1.4rem 0 0.5rem;
+
+    border-top:
+        1px solid var(--border);
+
+    text-align: center;
+
 }
 
-.footer strong {
+
+.footer-title {
+
     color: var(--navy);
+
+    font-size: 0.72rem;
+
+    font-weight: 800;
+
 }
+
+
+.footer-text {
+
+    margin-top: 0.25rem;
+
+    color: #8c96a5;
+
+    font-size: 0.56rem;
+
+}
+
+
+.footer-tech {
+
+    margin-top: 0.25rem;
+
+    color: #a2a9b4;
+
+    font-size: 0.5rem;
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
 
 @media (max-width: 768px) {
+
     .block-container {
-        padding-left: .8rem;
-        padding-right: .8rem;
+
+        padding-left: 0.7rem;
+        padding-right: 0.7rem;
+
     }
 
-    .compass-hero {
-        min-height: 220px;
-        padding: 1.4rem;
-        border-radius: 18px;
+    .hero {
+
+        padding: 1.6rem;
+
+        border-radius: 20px;
+
     }
 
-    .compass-hero h1 {
-        font-size: 2rem;
+    .hero h1 {
+
+        font-size: 2.15rem;
+
+    }
+
+    .hero-description {
+
+        font-size: 0.72rem;
+
     }
 
     .hero-meta {
-        gap: .3rem;
+
+        gap: 0.35rem;
+
     }
+
+    .meta-item {
+
+        font-size: 0.53rem;
+
+    }
+
+    .brand-title {
+
+        font-size: 0.78rem;
+
+    }
+
+    .brand-subtitle {
+
+        font-size: 0.52rem;
+
+    }
+
+    .status {
+
+        font-size: 0.52rem;
+
+    }
+
+    .result,
+    .empty {
+
+        min-height: 235px;
+
+    }
+
+    .about {
+
+        min-height: 155px;
+        padding: 1rem;
+
+    }
+
+    .prob {
+
+        min-height: 126px;
+
+        padding: 1rem;
+
+    }
+
+    .prob-value {
+
+        font-size: 1.18rem;
+
+    }
+
+    .about-text {
+
+        font-size: 0.64rem;
+        line-height: 1.9;
+
+    }
+
+    .about-icon {
+
+        width: 36px;
+        height: 36px;
+        margin-bottom: 0.65rem;
+
+    }
+
 }
 
 </style>
-""")
+""",
+    unsafe_allow_html=True,
+)
 
 
 # =========================================================
-# HEADER
+# TOP BAR
 # =========================================================
 
-st.html("""
-<div class="compass-hero">
-    <div class="hero-badge">UCAS · مشروع تخرج</div>
-    <h1>بوصلة المشاعر العربية</h1>
-    <p>
-        منصة تفاعلية لتحليل المشاعر العربية باستخدام نموذج AraBERT الحقيقي،
-        مع دعم تحليل النصوص المفردة ومجموعات البيانات بصيغة CSV.
-    </p>
-    <div class="hero-meta">
-        <span class="hero-chip">🤖 <strong>Model</strong>&nbsp; AraBERT</span>
-        <span class="hero-chip">🎯 <strong>Classes</strong>&nbsp; 3</span>
-        <span class="hero-chip">📏 <strong>Max Length</strong>&nbsp; 128</span>
-        <span class="hero-chip">⚡ <strong>Inference</strong>&nbsp; Real Model</span>
+st.markdown(
+    """
+<div class="topbar">
+    <div class="brand">
+        <div class="brand-icon">
+            🧭
+        </div>
+        <div>
+            <div class="brand-title">
+                Arabic Sentiment Compass
+            </div>
+            <div class="brand-subtitle">
+                Arabic Sentiment Intelligence
+            </div>
+        </div>
+    </div>
+    <div class="status">
+        <span class="status-dot"></span>
+        MODEL READY
     </div>
 </div>
-""")
+""",
+    unsafe_allow_html=True,
+)
 
 
 # =========================================================
-# THREE MAIN TABS
+# HERO
+# =========================================================
+
+st.markdown(
+    """
+<div class="hero">
+    <div class="hero-content">
+        <div class="hero-badge">
+            <strong>✦</strong>
+            Arabic NLP
+            <span>·</span>
+            Sentiment Intelligence
+        </div>
+        <h1>
+            بوصلة المشاعر العربية
+        </h1>
+        <div class="hero-description">
+            منصة متخصصة لتحليل المشاعر في النصوص العربية
+            باستخدام نموذج BERT حقيقي، مع دعم التحليل الفوري
+            وتحليل ملفات CSV على نطاق واسع.
+        </div>
+        <div class="hero-meta">
+            <div class="meta-item">
+                <strong>Model</strong>
+                AraBERT
+            </div>
+            <div class="meta-item">
+                <strong>Classes</strong>
+                3
+            </div>
+            <div class="meta-item">
+                <strong>Max Length</strong>
+                128
+            </div>
+            <div class="meta-item">
+                <strong>Inference</strong>
+                Real Model
+            </div>
+        </div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
+# MAIN TABS
 # =========================================================
 
 tab_text, tab_csv, tab_about = st.tabs(
-    ["📝 تحليل نص مفرد", "📊 تحليل ملف CSV", "ℹ️ نبذة عن النظام"]
+    [
+        "✦ تحليل النص",
+        "▦ تحليل CSV",
+        "◈ ذكاء النموذج",
+    ]
 )
 
 
@@ -810,125 +2001,327 @@ tab_text, tab_csv, tab_about = st.tabs(
 # =========================================================
 
 with tab_text:
+
     st.markdown(
-        '<div class="panel-title">تحليل نص عربي</div>'
-        '<div class="panel-subtitle">اكتب النص الذي تريد تحليله ثم ابدأ التحليل.</div>',
+        """
+<div class="section">
+    <div class="section-eyebrow">
+        SENTIMENT ANALYSIS
+    </div>
+    <div class="section-title">
+        حلّل المشاعر في أي نص عربي
+    </div>
+    <div class="section-description">
+        أدخل نصًا عربيًا لتحصل على التصنيف المتوقع
+        ودرجة الثقة وتوزيع احتمالات الفئات الثلاث.
+    </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
-    left, right = st.columns([1.05, 1], gap="large")
+    left, right = st.columns(
+        [1.03, 0.97],
+        gap="large",
+    )
+
+
+    # =====================================================
+    # INPUT
+    # =====================================================
 
     with left:
+
         st.markdown(
-            '<div class="panel-title" style="font-size:.95rem;">اكتب النص المراد تحليله</div>',
+            """
+<div class="card">
+    <div class="card-head">
+        <div class="card-title">
+            النص المراد تحليله
+        </div>
+        <div class="card-caption">
+            ARABIC TEXT
+        </div>
+    </div>
+""",
             unsafe_allow_html=True,
         )
 
         user_text = st.text_area(
-            "النص العربي",
-            placeholder="مثال: الخدمة ممتازة والتجربة رائعة جدًا",
-            height=165,
+            "Arabic text",
+            placeholder=(
+                "مثال: الخدمة ممتازة والتجربة كانت رائعة جدًا، "
+                "وسأكرر التعامل معهم بالتأكيد."
+            ),
+            height=175,
             label_visibility="collapsed",
             key="single_text",
         )
 
-        c1, c2 = st.columns([1, 1], gap="small")
+        c1, c2 = st.columns(
+            [1.2, 1],
+            gap="small",
+        )
 
         with c1:
-            st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="primary">',
+                unsafe_allow_html=True,
+            )
+
             analyze_button = st.button(
-                "تحليل المشاعر",
+                "✦ تحليل المشاعر",
                 use_container_width=True,
                 key="analyze_single",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
 
         with c2:
-            st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="secondary">',
+                unsafe_allow_html=True,
+            )
+
             clear_button = st.button(
-                "تفريغ الحقول",
+                "مسح",
                 use_container_width=True,
                 key="clear_single",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        if clear_button:
-            st.session_state.single_result = None
-            st.rerun()
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            """
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+    # =====================================================
+    # RESULT
+    # =====================================================
 
     with right:
-        result = st.session_state.get("single_result")
+
+        result = st.session_state.get(
+            "single_result"
+        )
 
         if result is None:
-            st.html("""
-            <div class="result-card" style="min-height:190px; display:flex; flex-direction:column; justify-content:center;">
-                <div class="result-question">؟</div>
-                <div class="result-label" style="font-size:1.05rem;">بانتظار النص للتحليل</div>
-                <div class="result-en">أدخل النص ثم اضغط تحليل المشاعر لعرض النتيجة.</div>
-            </div>
-            """)
+
+            st.markdown(
+                """
+<div class="empty">
+    <div class="empty-icon">
+        ✦
+    </div>
+    <div class="empty-title">
+        بانتظار النص
+    </div>
+    <div class="empty-text">
+        اكتب النص في الجهة المقابلة واضغط
+        "تحليل المشاعر" لعرض النتيجة.
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
         else:
+
             label = result["predicted_label"]
+
             confidence = result["confidence"]
 
-            st.html(f"""
-            <div class="result-card">
-                <div class="result-question">{SENTIMENT_ICONS[label]}</div>
-                <div class="result-label">{ARABIC_LABELS[label]}</div>
-                <div class="result-en">Predicted sentiment · {label}</div>
-                <div class="confidence">درجة الثقة · {confidence * 100:.2f}%</div>
-            </div>
-            """)
+            st.markdown(
+                f"""
+<div class="result">
+    <div class="result-orb">
+        <div class="result-symbol">
+            {SENTIMENT_ICONS[label]}
+        </div>
+    </div>
+    <div class="result-label">
+        {ARABIC_LABELS[label]}
+    </div>
+    <div class="result-sub">
+        Predicted Sentiment · {label}
+    </div>
+    <div class="confidence">
+        درجة الثقة · {confidence * 100:.2f}%
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+
+    # =====================================================
+    # ACTIONS
+    # =====================================================
+
+    if clear_button:
+
+        st.session_state.single_result = None
+
+        st.session_state.single_text = ""
+
+        st.rerun()
+
 
     if analyze_button:
+
         if not user_text.strip():
-            st.warning("من فضلك اكتب نصًا أولًا.")
+
+            st.warning(
+                "من فضلك اكتب نصًا أولًا."
+            )
+
         else:
+
             try:
-                with st.spinner("جاري تحليل النص باستخدام AraBERT..."):
+
+                with st.spinner(
+                    "جاري تحليل النص باستخدام النموذج..."
+                ):
+
                     tokenizer, model = load_model()
+
                     (
                         processed_text,
                         predicted_label,
                         confidence,
                         probabilities_dict,
-                    ) = predict_sentiment(user_text, tokenizer, model)
+                    ) = predict_sentiment(
+                        user_text,
+                        tokenizer,
+                        model,
+                    )
 
                 st.session_state.single_result = {
-                    "processed_text": processed_text,
-                    "predicted_label": predicted_label,
-                    "confidence": confidence,
-                    "probabilities_dict": probabilities_dict,
+
+                    "processed_text":
+                        processed_text,
+
+                    "predicted_label":
+                        predicted_label,
+
+                    "confidence":
+                        confidence,
+
+                    "probabilities_dict":
+                        probabilities_dict,
+
                 }
+
                 st.rerun()
 
             except Exception as exc:
-                st.error("حدث خطأ أثناء تحليل النص.")
+
+                st.error(
+                    "حدث خطأ أثناء تحليل النص."
+                )
+
                 st.exception(exc)
 
-    result = st.session_state.get("single_result")
+
+    # =====================================================
+    # PROBABILITIES
+    # =====================================================
+
+    result = st.session_state.get(
+        "single_result"
+    )
 
     if result is not None:
+
         st.markdown(
-            '<div class="panel-title" style="margin-top:1.2rem;">احتمالات جميع المشاعر</div>',
+            """
+<div class="prob-title">
+    <span class="prob-title-main">توزيع احتمالات المشاعر</span>
+    <span class="prob-title-sub">Model confidence distribution</span>
+</div>
+""",
             unsafe_allow_html=True,
         )
 
-        cols = st.columns(3, gap="medium")
+        cols = st.columns(
+            3,
+            gap="medium",
+        )
 
-        for col, label in zip(cols, LABELS_ORDER):
-            probability = result["probabilities_dict"][label]
+        for col, label in zip(
+            cols,
+            LABELS_ORDER,
+        ):
+
+            probability = (
+                result["probabilities_dict"][label]
+            )
+
+            percentage = probability * 100
 
             with col:
-                st.html(f"""
-                <div class="prob-card">
-                    <div class="prob-icon">{SENTIMENT_ICONS[label]}</div>
-                    <div class="prob-title">{ARABIC_LABELS[label]}</div>
-                    <div class="prob-en">{label}</div>
-                    <div class="prob-value">{probability * 100:.2f}%</div>
-                </div>
-                """)
-                st.progress(probability)
+
+                st.markdown(
+                    f"""
+<div class="prob">
+    <div class="prob-head">
+        <div>
+            <div class="prob-name">
+                {ARABIC_LABELS[label]}
+            </div>
+            <div class="prob-en">
+                {label}
+            </div>
+        </div>
+        <div class="prob-icon">
+            {SENTIMENT_ICONS[label]}
+        </div>
+    </div>
+    <div class="prob-value">
+        {percentage:.2f}%
+    </div>
+    <div class="prob-track">
+        <div
+            class="prob-fill"
+            style="width:{percentage:.2f}%"
+        ></div>
+    </div>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+
+
+        # =================================================
+        # PROCESSED TEXT
+        # =================================================
+
+        st.markdown(
+            f"""
+<div class="processed">
+    <div class="processed-label">
+        النص بعد المعالجة المسبقة
+    </div>
+    <div class="processed-value">
+        {result["processed_text"]}
+    </div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
 
 # =========================================================
@@ -936,74 +2329,188 @@ with tab_text:
 # =========================================================
 
 with tab_csv:
+
     st.markdown(
-        '<div class="panel-title">تحليل مجموعة نصوص دفعة واحدة</div>'
-        '<div class="panel-subtitle">ارفع ملف CSV يحتوي على عمود للنصوص ثم حلله باستخدام النموذج الحقيقي.</div>',
+        """
+<div class="section">
+    <div class="section-eyebrow">
+        BATCH ANALYSIS
+    </div>
+    <div class="section-title">
+        تحليل مجموعة نصوص دفعة واحدة
+    </div>
+    <div class="section-description">
+        ارفع ملف CSV، اختر عمود النص، ثم شغّل النموذج
+        على جميع السجلات واحصل على ملف نتائج جاهز للتحميل.
+    </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
-    st.html("""
-    <div class="csv-note">
-        يجب أن يحتوي الملف على عمود نصي واحد على الأقل.
-        بعد رفع الملف اختر العمود المراد تحليله، ثم ابدأ تحليل الملف.
-    </div>
-    """)
 
-    left, right = st.columns([1, 1], gap="large")
+    st.markdown(
+        """
+<div class="info">
+    <strong>
+        طريقة الاستخدام:
+    </strong>
+    ارفع ملف CSV يحتوي على عمود نصي واحد على الأقل،
+    ثم اختر العمود المطلوب واضغط على
+    "بدء تحليل الملف".
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+    left, right = st.columns(
+        [0.9, 1.1],
+        gap="large",
+    )
+
+
+    # =====================================================
+    # CSV INPUT
+    # =====================================================
 
     with left:
+
+        st.markdown(
+            """
+<div class="card">
+    <div class="card-head">
+        <div class="card-title">
+            رفع مجموعة البيانات
+        </div>
+        <div class="card-caption">
+            CSV DATASET
+        </div>
+    </div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
         uploaded_file = st.file_uploader(
             "رفع ملف CSV",
             type=["csv"],
             key="csv_uploader",
+            label_visibility="collapsed",
         )
 
+
+        analyze_csv_button = False
+
+
         if uploaded_file is not None:
+
             try:
+
                 raw_bytes = uploaded_file.getvalue()
 
-                try:
-                    csv_text = raw_bytes.decode("utf-8-sig")
-                except UnicodeDecodeError:
-                    csv_text = raw_bytes.decode("utf-8")
 
-                reader = csv.DictReader(io.StringIO(csv_text))
+                try:
+
+                    csv_text = raw_bytes.decode(
+                        "utf-8-sig"
+                    )
+
+                except UnicodeDecodeError:
+
+                    csv_text = raw_bytes.decode(
+                        "utf-8"
+                    )
+
+
+                reader = csv.DictReader(
+                    io.StringIO(csv_text)
+                )
+
                 rows = list(reader)
-                fieldnames = reader.fieldnames or []
+
+                fieldnames = (
+                    reader.fieldnames or []
+                )
+
 
                 if not rows or not fieldnames:
-                    st.warning("الملف فارغ أو لا يحتوي على أعمدة.")
+
+                    st.warning(
+                        "الملف فارغ أو لا يحتوي على أعمدة."
+                    )
+
                 else:
+
                     text_column = st.selectbox(
                         "اختر عمود النص",
                         fieldnames,
                         key="csv_text_column",
                     )
 
-                    st.caption(f"عدد الصفوف: {len(rows)}")
 
-                    st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
+                    st.caption(
+                        f"عدد السجلات: {len(rows):,}"
+                    )
+
+
+                    st.markdown(
+                        '<div class="primary">',
+                        unsafe_allow_html=True,
+                    )
+
+
                     analyze_csv_button = st.button(
-                        "بدء تحليل الملف",
+                        "✦ بدء تحليل الملف",
                         use_container_width=True,
                         key="analyze_csv",
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
+
+
+                    st.markdown(
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+
 
                     if analyze_csv_button:
+
                         try:
-                            with st.spinner("جاري تحليل الملف باستخدام AraBERT..."):
-                                tokenizer, model = load_model()
+
+                            with st.spinner(
+                                "جاري تحليل الملف باستخدام النموذج..."
+                            ):
+
+                                tokenizer, model = (
+                                    load_model()
+                                )
+
 
                                 results = []
 
-                                progress = st.progress(0.0)
+                                progress = st.progress(
+                                    0.0
+                                )
+
                                 total = len(rows)
 
-                                for index, row in enumerate(rows, start=1):
-                                    text = str(row.get(text_column, "") or "")
+
+                                for index, row in enumerate(
+                                    rows,
+                                    start=1,
+                                ):
+
+                                    text = str(
+                                        row.get(
+                                            text_column,
+                                            "",
+                                        )
+                                        or ""
+                                    )
+
 
                                     if text.strip():
+
                                         (
                                             processed_text,
                                             predicted_label,
@@ -1014,103 +2521,345 @@ with tab_csv:
                                             tokenizer,
                                             model,
                                         )
+
                                     else:
+
                                         processed_text = ""
+
                                         predicted_label = "Neutral"
+
                                         confidence = 0.0
+
                                         probabilities_dict = {
                                             "Negative": 0.0,
                                             "Neutral": 0.0,
                                             "Positive": 0.0,
                                         }
 
+
                                     new_row = dict(row)
-                                    new_row["processed_text"] = processed_text
-                                    new_row["sentiment"] = predicted_label
-                                    new_row["sentiment_ar"] = ARABIC_LABELS[predicted_label]
-                                    new_row["confidence"] = round(confidence, 6)
-                                    new_row["negative_probability"] = round(
-                                        probabilities_dict["Negative"], 6
-                                    )
-                                    new_row["neutral_probability"] = round(
-                                        probabilities_dict["Neutral"], 6
-                                    )
-                                    new_row["positive_probability"] = round(
-                                        probabilities_dict["Positive"], 6
+
+
+                                    new_row[
+                                        "processed_text"
+                                    ] = processed_text
+
+
+                                    new_row[
+                                        "sentiment"
+                                    ] = predicted_label
+
+
+                                    new_row[
+                                        "sentiment_ar"
+                                    ] = ARABIC_LABELS[
+                                        predicted_label
+                                    ]
+
+
+                                    new_row[
+                                        "confidence"
+                                    ] = round(
+                                        confidence,
+                                        6,
                                     )
 
-                                    results.append(new_row)
-                                    progress.progress(index / total)
 
-                                st.session_state.csv_results = results
-                                st.session_state.csv_columns = (
-                                    list(results[0].keys()) if results else []
+                                    new_row[
+                                        "negative_probability"
+                                    ] = round(
+                                        probabilities_dict[
+                                            "Negative"
+                                        ],
+                                        6,
+                                    )
+
+
+                                    new_row[
+                                        "neutral_probability"
+                                    ] = round(
+                                        probabilities_dict[
+                                            "Neutral"
+                                        ],
+                                        6,
+                                    )
+
+
+                                    new_row[
+                                        "positive_probability"
+                                    ] = round(
+                                        probabilities_dict[
+                                            "Positive"
+                                        ],
+                                        6,
+                                    )
+
+
+                                    results.append(
+                                        new_row
+                                    )
+
+
+                                    progress.progress(
+                                        index / total
+                                    )
+
+
+                            st.session_state.csv_results = (
+                                results
+                            )
+
+
+                            st.session_state.csv_columns = (
+                                list(
+                                    results[0].keys()
                                 )
+                                if results
+                                else []
+                            )
 
-                            st.success("تم تحليل الملف بنجاح.")
+
+                            st.success(
+                                "تم تحليل الملف بنجاح."
+                            )
+
 
                         except Exception as exc:
-                            st.error("حدث خطأ أثناء تحليل ملف CSV.")
+
+                            st.error(
+                                "حدث خطأ أثناء تحليل ملف CSV."
+                            )
+
                             st.exception(exc)
 
+
             except Exception as exc:
-                st.error("تعذر قراءة ملف CSV.")
+
+                st.error(
+                    "تعذر قراءة ملف CSV."
+                )
+
                 st.exception(exc)
 
+
+        st.markdown(
+            """
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+    # =====================================================
+    # CSV RESULTS
+    # =====================================================
+
     with right:
-        csv_results = st.session_state.get("csv_results")
+
+        csv_results = st.session_state.get(
+            "csv_results"
+        )
+
 
         if not csv_results:
-            st.html("""
-            <div class="result-card" style="min-height:210px; display:flex; flex-direction:column; justify-content:center;">
-                <div class="result-question">?</div>
-                <div class="result-label" style="font-size:1.05rem;">نتائج تحليل الملف</div>
-                <div class="result-en">ستظهر النتائج هنا بعد تحليل ملف CSV.</div>
-            </div>
-            """)
-        else:
-            columns = st.session_state.get("csv_columns", [])
 
             st.markdown(
-                '<div class="panel-title" style="font-size:.95rem;">نتائج التحليل</div>',
+                """
+<div class="empty">
+    <div class="empty-icon">
+        ▦
+    </div>
+    <div class="empty-title">
+        نتائج تحليل الملف
+    </div>
+    <div class="empty-text">
+        بعد رفع ملف CSV وتشغيل التحليل،
+        ستظهر الإحصائيات والنتائج هنا.
+    </div>
+</div>
+""",
                 unsafe_allow_html=True,
             )
 
+
+        else:
+
+            counts = Counter(
+                row.get(
+                    "sentiment",
+                    "Neutral",
+                )
+                for row in csv_results
+            )
+
+
+            total_rows = len(
+                csv_results
+            )
+
+
+            positive_count = counts.get(
+                "Positive",
+                0,
+            )
+
+            neutral_count = counts.get(
+                "Neutral",
+                0,
+            )
+
+            negative_count = counts.get(
+                "Negative",
+                0,
+            )
+
+
+            positive_pct = (
+                positive_count / total_rows * 100
+                if total_rows
+                else 0
+            )
+
+
+            neutral_pct = (
+                neutral_count / total_rows * 100
+                if total_rows
+                else 0
+            )
+
+
+            negative_pct = (
+                negative_count / total_rows * 100
+                if total_rows
+                else 0
+            )
+
+
+            st.markdown(
+                """
+<div class="section" style="margin-top:0;">
+    <div class="section-eyebrow">
+        RESULTS
+    </div>
+    <div class="section-title">
+        ملخص التحليل
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+
+            stat_cols = st.columns(
+                4,
+                gap="small",
+            )
+
+
+            stats = [
+
+                (
+                    "إجمالي السجلات",
+                    f"{total_rows:,}",
+                    "Total",
+                ),
+
+                (
+                    "إيجابي",
+                    f"{positive_pct:.1f}%",
+                    f"{positive_count:,} سجل",
+                ),
+
+                (
+                    "محايد",
+                    f"{neutral_pct:.1f}%",
+                    f"{neutral_count:,} سجل",
+                ),
+
+                (
+                    "سلبي",
+                    f"{negative_pct:.1f}%",
+                    f"{negative_count:,} سجل",
+                ),
+
+            ]
+
+
+            for col, stat in zip(
+                stat_cols,
+                stats,
+            ):
+
+                title, value, sub = stat
+
+                with col:
+
+                    st.markdown(
+                        f"""
+<div class="stat">
+    <div class="stat-label">
+        {title}
+    </div>
+    <div class="stat-value">
+        {value}
+    </div>
+    <div class="stat-sub">
+        {sub}
+    </div>
+</div>
+""",
+                        unsafe_allow_html=True,
+                    )
+
+
+            st.markdown(
+                """
+<div class="prob-title">
+    معاينة النتائج
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+
             preview_rows = csv_results[:50]
 
-            # Native Streamlit table for reliable RTL-compatible data rendering.
+
             st.dataframe(
                 preview_rows,
                 use_container_width=True,
                 hide_index=True,
             )
 
-            counts = Counter(
-                row.get("sentiment", "Neutral")
-                for row in csv_results
-            )
-
-            summary_cols = st.columns(3, gap="small")
-            for summary_col, label in zip(summary_cols, LABELS_ORDER):
-                with summary_col:
-                    st.metric(
-                        ARABIC_LABELS[label],
-                        counts.get(label, 0),
-                    )
 
             output = io.StringIO()
+
+
             writer = csv.DictWriter(
                 output,
-                fieldnames=columns,
+                fieldnames=st.session_state.get(
+                    "csv_columns",
+                    [],
+                ),
                 extrasaction="ignore",
             )
+
+
             writer.writeheader()
-            writer.writerows(csv_results)
+
+            writer.writerows(
+                csv_results
+            )
+
 
             st.download_button(
-                "تنزيل النتائج كاملة CSV",
-                data=output.getvalue().encode("utf-8-sig"),
-                file_name="arabic_sentiment_results.csv",
+                "↓ تنزيل النتائج كاملة CSV",
+                data=output.getvalue().encode(
+                    "utf-8-sig"
+                ),
+                file_name=(
+                    "arabic_sentiment_results.csv"
+                ),
                 mime="text/csv",
                 use_container_width=True,
                 key="download_csv_results",
@@ -1118,103 +2867,272 @@ with tab_csv:
 
 
 # =========================================================
-# TAB 3 — ABOUT SYSTEM
+# TAB 3 — MODEL INTELLIGENCE
 # =========================================================
 
 with tab_about:
+
     st.markdown(
-        '<div class="panel-title">نبذة عن النظام</div>'
-        '<div class="panel-subtitle">معلومات مختصرة عن النموذج والمشروع وطريقة التحليل.</div>',
+        """
+<div class="section">
+    <div class="section-eyebrow">
+        MODEL INTELLIGENCE
+    </div>
+    <div class="section-title">
+        نظرة على النموذج والنظام
+    </div>
+    <div class="section-description">
+        معلومات مختصرة عن النموذج ومسار معالجة النص
+        وآلية استخراج التنبؤ.
+    </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
-    row1 = st.columns(3, gap="medium")
 
-    with row1[0]:
-        st.html("""
-        <div class="about-card">
-            <h4>النموذج</h4>
-            <p>
-                AraBERT02-Twitter / AraBERT مخصص للنصوص العربية القصيرة
-                ومهام تحليل المشاعر.
-            </p>
-        </div>
-        """)
+    # =====================================================
+    # MODEL STATS
+    # =====================================================
 
-    with row1[1]:
-        st.html("""
-        <div class="about-card">
-            <h4>عدد الفئات</h4>
-            <p>
-                ثلاث فئات رسمية: سلبي، محايد، إيجابي.
-                ويُعرض ترتيب الاحتمالات دائمًا بنفس الترتيب.
-            </p>
-        </div>
-        """)
+    model_cols = st.columns(
+        4,
+        gap="medium",
+    )
 
-    with row1[2]:
-        st.html("""
-        <div class="about-card">
-            <h4>المعالجة</h4>
-            <p>
-                يتم تطبيق preprocessing الرسمي على النص قبل إرساله
-                إلى Tokenizer والموديل.
-            </p>
-        </div>
-        """)
 
-    row2 = st.columns(3, gap="medium")
+    model_stats = [
 
-    with row2[0]:
-        st.html("""
-        <div class="about-card">
-            <h4>MAX_LENGTH</h4>
-            <p>
-                الحد الأقصى لطول الإدخال المستخدم في الـTokenizer هو 128 token.
-            </p>
-        </div>
-        """)
+        (
+            "النموذج",
+            "AraBERT",
+            "Arabic BERT",
+        ),
 
-    with row2[1]:
-        st.html("""
-        <div class="about-card">
-            <h4>Confidence</h4>
-            <p>
-                قيمة الـConfidence هي أعلى Softmax Score للناتج المتوقع،
-                وليست calibrated probability.
-            </p>
-        </div>
-        """)
+        (
+            "Task",
+            "Sentiment",
+            "3-class classification",
+        ),
 
-    with row2[2]:
-        st.html("""
-        <div class="about-card">
-            <h4>Model Hub</h4>
-            <p>
-                يتم تحميل الـTokenizer والموديل النهائي من مستودع
-                Hugging Face الخاص بالمشروع.
-            </p>
-        </div>
-        """)
+        (
+            "Max Length",
+            "128",
+            "Tokenizer sequence length",
+        ),
 
-    st.html("""
-    <div class="csv-note" style="margin-top:1rem;">
-        <span class="gold-title">نطاق المشروع:</span>
-        Arabic Sentiment Compass هو تطبيق تفاعلي لتحليل المشاعر العربية
-        باستخدام نموذج AraBERT الحقيقي، مع واجهة لتحليل نص مفرد وتحليل ملفات CSV.
+        (
+            "Inference",
+            "Real",
+            "Hugging Face model",
+        ),
+
+    ]
+
+
+    for col, stat in zip(
+        model_cols,
+        model_stats,
+    ):
+
+        title, value, subtitle = stat
+
+        with col:
+
+            st.markdown(
+                f"""
+<div class="intel">
+    <div class="intel-label">
+        {title}
     </div>
-    """)
+    <div class="intel-value intel-accent">
+        {value}
+    </div>
+    <div
+        class="intel-label"
+        style="margin-top:.4rem;"
+    >
+        {subtitle}
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+
+    # =====================================================
+    # PIPELINE
+    # =====================================================
+
+    st.markdown(
+        """
+<div class="prob-title">
+    مسار التنبؤ
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+    pipeline_cols = st.columns(
+        5,
+        gap="small",
+    )
+
+
+    pipeline_steps = [
+
+        (
+            "01",
+            "User Input",
+            "Arabic text",
+        ),
+
+        (
+            "02",
+            "Preprocessing",
+            "Text normalization",
+        ),
+
+        (
+            "03",
+            "Tokenizer",
+            "AraBERT tokenizer",
+        ),
+
+        (
+            "04",
+            "Model",
+            "Neural inference",
+        ),
+
+        (
+            "05",
+            "Prediction",
+            "3-class sentiment",
+        ),
+
+    ]
+
+
+    for col, step in zip(
+        pipeline_cols,
+        pipeline_steps,
+    ):
+
+        number, title, subtitle = step
+
+        with col:
+
+            st.markdown(
+                f"""
+<div class="pipeline">
+    <div class="pipeline-number">
+        STEP {number}
+    </div>
+    <div class="pipeline-title">
+        {title}
+    </div>
+    <div class="pipeline-sub">
+        {subtitle}
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+
+    # =====================================================
+    # SYSTEM DETAILS
+    # =====================================================
+
+    st.markdown(
+        """
+<div class="prob-title">
+    تفاصيل النظام
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+    row1 = st.columns(
+        3,
+        gap="medium",
+    )
+
+
+
+    about_items = [
+        (
+            "◉",
+            "التصنيفات",
+            "النظام يصنف النصوص العربية إلى ثلاث فئات: سلبي، محايد، وإيجابي.",
+        ),
+        (
+            "✦",
+            "المعالجة المسبقة",
+            "يتم تطبيق المعالجة المسبقة على النص قبل إرساله إلى الـTokenizer والنموذج.",
+        ),
+        (
+            "◆",
+            "Real Inference",
+            "التطبيق يستخدم النموذج الحقيقي من Hugging Face لإجراء التنبؤات.",
+        ),
+        (
+            "↗",
+            "Confidence",
+            "درجة الثقة المعروضة هي أعلى Softmax Score للناتج المتوقع.",
+        ),
+        (
+            "▦",
+            "Batch Analysis",
+            "يدعم التطبيق رفع CSV وتحليل مجموعة من النصوص ثم تنزيل النتائج في ملف جديد.",
+        ),
+        (
+            "∞",
+            "Arabic NLP",
+            "المشروع يركز على تطبيقات تحليل المشاعر للنصوص العربية القصيرة.",
+        ),
+    ]
+
+    for start_index in (0, 3):
+        row = st.columns(3, gap="medium")
+
+        for col, item in zip(row, about_items[start_index:start_index + 3]):
+            icon, title, description = item
+
+            with col:
+                st.markdown(
+                    f'''
+<div class="about">
+    <div class="about-icon">{icon}</div>
+    <div class="about-title" dir="auto">{title}</div>
+    <div class="about-text" dir="rtl">{description}</div>
+</div>
+''',
+                    unsafe_allow_html=True,
+                )
+
 
 
 # =========================================================
 # FOOTER
 # =========================================================
 
-st.html("""
+st.markdown(
+    """
 <div class="footer">
-    <strong>Arabic Sentiment Compass 🧭</strong><br>
-    Arabic Sentiment Analysis · Powered by AraBERT
-    <br>
-    <span style="font-size:.65rem;">Real model inference · 3-class Arabic sentiment classification</span>
+    <div class="footer-title">
+        🧭 Arabic Sentiment Compass
+    </div>
+    <div class="footer-text">
+        Arabic Sentiment Intelligence
+    </div>
+    <div class="footer-tech">
+        Real Model Inference · 3-Class Arabic Sentiment Classification
+    </div>
 </div>
-""")
+""",
+    unsafe_allow_html=True,
+)
