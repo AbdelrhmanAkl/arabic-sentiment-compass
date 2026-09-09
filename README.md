@@ -8,7 +8,7 @@ The project combines an academic NLP pipeline with a polished Streamlit interfac
 
 ## 🚀 Live Demo
 
-[🧭 Try Arabic Sentiment Compass](https://arabic-sentiment-compass-randsalem.streamlit.app/)
+[🧭 Try Arabic Sentiment Compass](https://arabic-sentiment-compasss.streamlit.app/)
 
 ✨ Project Overview
 
